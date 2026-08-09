@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SeedCryptor 16B / 32B</title>
+<style>
+:root{ --bg:#0d0f0d; --fg:#c8ffc8; --accent:#00ff66; --border:#2a3a2a; --panel:#151815; --warn:#ffeb3b; }
+*{box-sizing:border-box}
+body{font-family:ui-monospace, monospace; max-width:780px; margin:20px auto; background:var(--bg); color:var(--fg); padding:16px; line-height:1.5}
+h2{color:var(--accent); margin:0 0 6px}
+.tabs{display:flex; gap:8px; margin:16px 0}
+.tab{flex:1; padding:10px; text-align:center; cursor:pointer; border:1px solid var(--border); border-radius:6px; background:var(--panel); color:var(--fg); font-weight:700}
+.tab.active{background:var(--accent); color:#000; border-color:var(--accent)}
+.panel{display:none}
+.panel.active{display:block}
+input,textarea{width:100%; background:#000; color:#e0ffe0; border:1px solid var(--border); padding:12px; margin:8px 0 12px; border-radius:6px; font-size:14px}
+button{width:100%; padding:12px; border-radius:6px; border:0; font-weight:800; cursor:pointer; margin-top:8px; background:var(--accent); color:#000}
+button.secondary{background:var(--panel); color:var(--accent); border:1px solid var(--accent)}
+pre{white-space:pre-wrap; word-break:break-all; background:#000; padding:12px; border:1px solid var(--border); border-radius:6px; min-height:40px}
+.muted{color:#9ab09a; font-size:12.5px}
+.warn{color:var(--warn); border:1px solid #665a00; background:#1e1c00; padding:10px; border-radius:6px; display:block; margin:10px 0}
+a{color:var(--accent)}
+.card{border:1px solid var(--border); background:var(--panel); padding:12px; border-radius:8px; margin:12px 0}
+</style>
+</head>
+<body>
+<h2>SeedCryptor <span style="font-size:12px; border:1px solid var(--accent); padding:2px 8px; border-radius:20px">16B / 32B</span></h2>
+<span class="warn">WARNING: NOT AUDITED. Educational. Use offline. No seed generation - use existing seed only. Translation words ↔ hex via iancoleman.io/bip39 STRICTLY OFFLINE.</span>
+
+<div class="card">
+<span class="muted">
+<b>How to get hex:</b><br>
+12 words → 32 hex (16B): use <b>iancoleman.io/bip39</b> offline → BIP39 Mnemonic → shows Entropy hex (32 chars)<br>
+24 words → 64 hex (32B): same, Entropy hex = 64 chars<br>
+Back: hex → words: iancoleman → Entropy → Mnemonic. ALWAYS OFFLINE, AIR-GAPPED BROWSER.<br>
+This tool does NOT generate seeds, only encrypts your existing hex.
+</span>
+</div>
+
+<div class="tabs">
+<div class="tab active" onclick="switchTab('16')">16 BYTE (12 words)<br><span style="font-size:11px">32 hex chars</span></div>
+<div class="tab" onclick="switchTab('32')">32 BYTE (24 words)<br><span style="font-size:11px">64 hex chars</span></div>
+</div>
+
+<div id="panel16" class="panel active">
+<label>Seed 16B - 32 hex chars (from iancoleman Entropy):</label>
+<input id="hex16" placeholder="32 hex, e.g. a1b2c3... (128-bit)">
+<label>Password:</label>
+<input id="pwd16" type="password" placeholder="strong password >=8">
+<button onclick="encrypt('16')">Encrypt 16B → Base58 Backup</button>
+<pre id="out16">...</pre>
+<hr style="border-color:var(--border)">
+<label>Paste Backup (Base58):</label>
+<textarea id="block16" rows="3"></textarea>
+<label>Password:</label>
+<input id="pwd16d" type="password">
+<button class="secondary" onclick="decrypt('16')">Decrypt → 32 hex</button>
+<pre id="out16d">...</pre>
+</div>
+
+<div id="panel32" class="panel">
+<label>Seed 32B - 64 hex chars (from iancoleman Entropy):</label>
+<input id="hex32" placeholder="64 hex, e.g. a1b2c3... (256-bit)">
+<label>Password:</label>
+<input id="pwd32" type="password" placeholder="strong password >=8">
+<button onclick="encrypt('32')">Encrypt 32B → Base58 Backup</button>
+<pre id="out32">...</pre>
+<hr style="border-color:var(--border)">
+<label>Paste Backup (Base58):</label>
+<textarea id="block32" rows="3"></textarea>
+<label>Password:</label>
+<input id="pwd32d" type="password">
+<button class="secondary" onclick="decrypt('32')">Decrypt → 64 hex</button>
+<pre id="out32d">...</pre>
+</div>
+
+<div class="card muted">
+Format: Base58Decode → [0:16]=salt, [16:28]=iv(12B), [28:]=ciphertext+tag(16B)<br>
+KDF: PBKDF2-HMAC-SHA256 600,000 iterations, 256-bit key<br>
+ENC: AES-GCM 256<br>
+Base58: 123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz<br>
+No generation, no network, pure WebCrypto + JS Base58. Run offline.
+</div>
+
+<script>
+const B58_ALPH='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const B58_MAP={}; for(let i=0;i<B58_ALPH.length;i++) B58_MAP[B58_ALPH[i]]=i;
+function b58encode(b){ let z=0; while(z<b.length&&b[z]===0) z++; let n=0n; for(let x of b) n=(n<<8n)+BigInt(x); let o=''; while(n>0n){ o=B58_ALPH[Number(n%58n)]+o; n/=58n; } for(let i=0;i<z;i++) o='1'+o; return o||'1'; }
+function b58decode(s){ s=s.trim().replace(/\s+/g,''); if(!s) throw Error("empty"); let z=0; while(z<s.length&&s[z]==='1') z++; let n=0n; for(let c of s){ if(!(c in B58_MAP)) throw Error("bad base58 char "+c); n=n*58n+BigInt(B58_MAP[c]); } let hex=n.toString(16); if(hex.length%2) hex='0'+hex; let bytes=hex==="00"||hex==="0"?new Uint8Array(0):Uint8Array.from(hex.match(/../g).map(h=>parseInt(h,16))); let out=new Uint8Array(z+bytes.length); out.set(bytes,z); if(n===0n&&bytes.length===0) out=new Uint8Array(z); return out; }
+async function deriveKey(pwd,salt){ const base=await crypto.subtle.importKey("raw", new TextEncoder().encode(pwd), {name:"PBKDF2"}, false, ["deriveKey"]); return crypto.subtle.deriveKey({name:"PBKDF2", salt, iterations:600000, hash:"SHA-256"}, base, {name:"AES-GCM", length:256}, false, ["encrypt","decrypt"]); }
+function hexToBytes(hex, exp){ hex=hex.trim().toLowerCase().replace(/^0x/,''); if(!new RegExp(`^[0-9a-f]{${exp}}$`).test(hex)) throw Error(`hex must be exactly ${exp} chars`); return Uint8Array.from(hex.match(/../g).map(h=>parseInt(h,16))); }
+function bytesToHex(b){ return [...b].map(x=>x.toString(16).padStart(2,'0')).join(''); }
+function extractB58(t){ let s=t.trim(); if(/^[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz\s]+$/.test(s)&&!s.includes("BEGIN")) return s.replace(/\s+/g,''); let lines=s.split(/\r?\n/), p=[]; for(let l of lines){ l=l.trim(); if(!l) continue; if(l.includes("BEGIN")||l.includes("END")||l.includes("KDF:")||l.includes("ENC:")) continue; if(/^[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+$/.test(l)) p.push(l); } let b=p.join(""); if(!b){ let m=s.match(/[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]{70,140}/); if(m) b=m[0]; } if(!b) throw Error("No base58 found"); return b.replace(/\s+/g,''); }
+function switchTab(which){ document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active')); document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active')); if(which==='16'){ document.querySelectorAll('.tab')[0].classList.add('active'); document.getElementById('panel16').classList.add('active'); } else { document.querySelectorAll('.tab')[1].classList.add('active'); document.getElementById('panel32').classList.add('active'); } }
+
+async function encrypt(which){
+ try{
+  const is16=which==='16';
+  const hexId=is16?'hex16':'hex32', pwdId=is16?'pwd16':'pwd32', outId=is16?'out16':'out32';
+  const exp=is16?32:64;
+  const seed=hexToBytes(document.getElementById(hexId).value, exp);
+  const pwd=document.getElementById(pwdId).value; if(!pwd||pwd.length<8) throw Error("password >=8 required");
+  const salt=crypto.getRandomValues(new Uint8Array(16)), iv=crypto.getRandomValues(new Uint8Array(12));
+  const key=await deriveKey(pwd,salt);
+  const ct=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM", iv}, key, seed));
+  const all=new Uint8Array(salt.length+iv.length+ct.length); all.set(salt,0); all.set(iv,16); all.set(ct,28);
+  const b58=b58encode(all);
+  const label=is16?'16 BYTE':'32 BYTE';
+  const block=`-----BEGIN SEED BACKUP ${label}-----\n${b58}\nKDF: PBKDF2-HMAC-SHA256-600000\nENC: AES-GCM-256 Base58\n-----END SEED BACKUP ${label}-----`;
+  document.getElementById(outId).textContent=block+"\n\nLen "+b58.length+" chars, "+all.length+" bytes (16 salt +12 iv +"+ct.length+" ct+tag)\nNote: words ↔ hex via iancoleman.io/bip39 offline";
+ }catch(e){ const outId=which==='16'?'out16':'out32'; document.getElementById(outId).textContent="Error: "+(e.message||e); }
+}
+async function decrypt(which){
+ try{
+  const is16=which==='16';
+  const blockId=is16?'block16':'block32', pwdId=is16?'pwd16d':'pwd32d', outId=is16?'out16d':'out32d';
+  const b58=extractB58(document.getElementById(blockId).value);
+  const all=b58decode(b58);
+  if(all.length<44) throw Error("too short");
+  const salt=all.slice(0,16), iv=all.slice(16,28), ct=all.slice(28);
+  const pwd=document.getElementById(pwdId).value; if(!pwd) throw Error("need password");
+  const key=await deriveKey(pwd,salt);
+  const pt=new Uint8Array(await crypto.subtle.decrypt({name:"AES-GCM", iv}, key, ct));
+  const exp=is16?16:32;
+  if(pt.length!==exp) throw Error("decrypted length mismatch, got "+pt.length+" expected "+exp);
+  document.getElementById(outId).textContent="OK ✓ Decrypted "+(is16?'16B':'32B')+"\nHex ("+(is16?'32':'64')+" chars):\n"+bytesToHex(pt)+"\n\nUse iancoleman.io/bip39 OFFLINE: Entropy → Mnemonic to get words back.\nB58 len "+b58.length+", decoded "+all.length+" bytes";
+ }catch(e){ const outId=which==='16'?'out16d':'out32d'; document.getElementById(outId).textContent="Error: "+(e.message||e); }
+}
+</script>
+</body>
+</html>
